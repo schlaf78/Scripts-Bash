@@ -1,61 +1,14 @@
 stages:
-  - update-readme
+  - mirror
 
-update_readme:
-  stage: update-readme
-  image: alpine:latest
-  before_script:
-    - apk add --no-cache git bash coreutils
-  script:
-    # Look for any changed files with .sh extension in the latest commit
-    - FILE_CHANGED=$(git diff-tree --no-commit-id --name-only -r $CI_COMMIT_SHA | grep '\.sh$' || true)
-    - COMMIT_MSG=$(git log -1 --pretty=%s)
-
-    - echo "Changed file: $FILE_CHANGED"
-    - echo "Commit message: $COMMIT_MSG"
-
-    - if [ -z "$FILE_CHANGED" ]; then echo "No .sh files changed. Skipping README update."; exit 0; fi
-
-    # Recreate README.md
-    - echo "# Bash scripts" > README.md
-    - echo "" >> README.md
-    - echo "Список скриптов в репозитории (рекурсивно):" >> README.md
-    - echo "" >> README.md
-    - echo "| Script | Description |" >> README.md
-    - echo "|---|---|" >> README.md
-
-    # Проходим по всем .sh файлам рекурсивно
-    - >
-      find . -type f -name '*.sh' | sed 's|^\./||' | sort | while read -r f; do
-        # description: если это файл, который изменился в этом коммите — ставим текущий commit msg,
-        # иначе берём последний commit msg для этого файла (если есть)
-        if printf '%s\n' "./$FILE_CHANGED" | grep -qx -- "./$f"; then
-          DESC="$COMMIT_MSG"
-        else
-          DESC=$(git log -1 --pretty=%s -- "$f" 2>/dev/null || echo "")
-        fi
-        # Ссылка на файл в web-интерфейсе (на ветку main)
-        LINK="https://gitlab.com/${CI_PROJECT_PATH}/-/blob/main/$f"
-        echo "| [$f]($LINK) | ${DESC:-_no description_} |" >> README.md
-      done
-
-    - echo "" >> README.md
-    - echo "_Автоматически обновляется через GitLab CI/CD_" >> README.md
-
-    # Настройка git и пуш (используется REPO_TOKEN из CI переменных)
-    - git config --global user.email "ci-bot@local"
-    - git config --global user.name "GitLab CI Bot"
-    - git add README.md
-    - if git diff --staged --quiet; then
-        echo "No changes to commit.";
-      else
-        # Устанавливаем origin с токеном (mask token via CI variable)
-        - >
-          git remote set-url origin "https://oauth2:${REPO_TOKEN}@gitlab.com/${CI_PROJECT_PATH}.git"
-        # Коммитим с [ci skip], чтобы не запускать pipeline снова
-        - git commit -m "ci: update README.md with scripts list [ci skip]"
-        - git push origin HEAD:$CI_COMMIT_REF_NAME
-      fi
-
+sync_to_github:
+  stage: mirror
   only:
     - main
+  script:
+    - git config --global user.name "GitLab CI"
+    - git config --global user.email "ci@example.com"
+    - git remote add github https://${GITHUB_USERNAME}:${GITHUB_TOKEN}@github.com/${GITHUB_USERNAME}/${CI_PROJECT_NAME}.git
+    - git checkout -b main
+    - git push --force github main
+    - git push --tags github
